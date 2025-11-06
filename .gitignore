@@ -1,0 +1,20 @@
+# build outputs
+/build/
+/cmake-build-*/
+
+# compiler junk
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+
+# executables & logs
+*.exe
+*.log
+
+# editors / tooling
+*.swp
+.DS_Store
+compile_commands.json
