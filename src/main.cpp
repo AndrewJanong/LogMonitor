@@ -17,6 +17,7 @@ int main(int argc, char** argv) {
     LogMonitor::Config cfg;
     cfg.input_file = argv[1];
     cfg.output_file = argv[2];
+    if (argc > 3) cfg.keywords.assign(argv + 3, argv + argc);
 
     LogMonitor monitor(cfg);
     g_monitor = &monitor;

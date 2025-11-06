@@ -33,8 +33,23 @@ bool LogMonitor::openFiles() {
     return true;
 }
 
+bool LogMonitor::containsKeyword(const std::string& line) const {
+    if (config_.keywords.empty()) {
+        return true;  // no filter, accept all lines
+    }
+    
+    for (const auto& keyword : config_.keywords) {
+        if (line.find(keyword) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void LogMonitor::processLine(const std::string& line) {
-    output_stream_ << line << std::endl;
+    if (containsKeyword(line)) {
+        output_stream_ << line << std::endl;
+    }
 }
 
 void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {

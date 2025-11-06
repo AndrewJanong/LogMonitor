@@ -3,6 +3,7 @@
 
 #include <string>
 #include <fstream>
+#include <vector>
 
 class LogMonitor {
 public:
@@ -12,6 +13,7 @@ public:
         size_t buffer_size = 8192; // 8KB
         size_t max_line_length = 5000; // 5000 characters per line
         int poll_interval_ms = 100; // poll every 100ms to check new data
+        std::vector<std::string> keywords;
     };
 
     explicit LogMonitor(const Config& config);
@@ -34,6 +36,7 @@ private:
     bool openFiles();
     void processBuffer(const char* buffer, size_t bytes_read);
     void processLine(const std::string& line);
+    bool containsKeyword(const std::string& line) const;
     void waitForData();
 
 };
