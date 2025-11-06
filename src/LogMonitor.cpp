@@ -47,7 +47,9 @@ void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {
             processLine(current_line_);
             current_line_.clear();
         } else {
-            current_line_ += ch;
+            if (current_line_.size() < 5000) {
+                current_line_ += ch; // only add to current line if haven't exceeded line limit
+            }
         }
     }
 }
