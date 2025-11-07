@@ -14,6 +14,7 @@ public:
         size_t max_line_length = 5000; // 5000 characters per line
         int poll_interval_ms = 100; // poll every 100ms to check new data
         std::vector<std::string> keywords;
+        bool bench_stamp = false;
     };
 
     explicit LogMonitor(const Config& config);

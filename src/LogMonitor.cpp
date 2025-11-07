@@ -46,9 +46,19 @@ bool LogMonitor::containsKeyword(const std::string& line) const {
     return false;
 }
 
+static inline long long now_epoch_ns() {
+    using namespace std::chrono;
+    return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+}
+
 void LogMonitor::processLine(const std::string& line) {
     if (containsKeyword(line)) {
-        output_stream_ << line << std::endl;
+        if (config_.bench_stamp) {
+            output_stream_ << line;
+            output_stream_ << "\t#MON_TS=" << std::to_string(now_epoch_ns()) << std::endl;
+        } else {
+            output_stream_ << line << std::endl;
+        }
     }
 }
 
