@@ -19,7 +19,6 @@ int main(int argc, char** argv) {
     cfg.output_file = argv[2];
     if (argc > 3) {
         std::string arg = argv[3];
-        std::cout << arg << std::endl;
         if (arg == "--bench-stamp") {
             cfg.bench_stamp = true;
             cfg.keywords.assign(argv + 4, argv + argc);

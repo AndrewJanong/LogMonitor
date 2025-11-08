@@ -3,6 +3,8 @@
 #include <thread>
 #include <chrono>
 #include <unistd.h>
+#include <fcntl.h>
+#include <cerrno>
 
 LogMonitor::LogMonitor(const Config& config) 
     : config_(config) {
@@ -13,7 +15,12 @@ LogMonitor::~LogMonitor() {
     // ensure the consumer is stopped before closing files
     stop();
     if (consumer_thread_.joinable()) consumer_thread_.join();
-    if (input_stream_.is_open()) input_stream_.close();
+
+    if (input_fd_ >= 0) {
+        ::close(input_fd_);
+        input_fd_ = -1;
+    }
+
     if (output_stream_.is_open()) { 
         output_stream_.flush();
         output_stream_.close();
@@ -21,21 +28,26 @@ LogMonitor::~LogMonitor() {
 }
 
 bool LogMonitor::openFiles() {
-    // open input file
-    input_stream_.open(config_.input_file, std::ios::in | std::ios::binary);
-    if (!input_stream_.is_open()) {
-        std::cerr << "Error: Cannot open input file: " << config_.input_file << std::endl;
+    input_fd_ = ::open(config_.input_file.c_str(), O_RDONLY);
+    if (input_fd_ < 0) {
+        std::cerr << "Error: Cannot open input file: " << config_.input_file
+                  << " (" << std::strerror(errno) << ")\n";
         return false;
     }
 
-    // only track updates to the log file
-    input_stream_.seekg(0, std::ios::end);
+    // only track updates to the log file, seek to end
+    if (::lseek(input_fd_, 0, SEEK_END) == (off_t)-1) {
+        std::cerr << "Error: lseek on input file failed: " << std::strerror(errno) << "\n";
+        ::close(input_fd_);
+        input_fd_ = -1;
+        return false;
+    }
 
-    // open output file
     output_stream_.open(config_.output_file, std::ios::out | std::ios::app);
     if (!output_stream_.is_open()) {
         std::cerr << "Error: Cannot open output file: " << config_.output_file << std::endl;
-        input_stream_.close();
+        ::close(input_fd_);
+        input_fd_ = -1;
         return false;
     }
 
@@ -139,30 +151,26 @@ void LogMonitor::run() {
     consumer_thread_ = std::thread(&LogMonitor::consumerLoop, this);
 
     std::vector<char> buffer(config_.buffer_size);
-    std::streampos last_pos = input_stream_.tellg();
 
     while (running_) {
-        // read input stream to buffer
-        input_stream_.read(buffer.data(), buffer.size());
-        std::streamsize bytes_read = input_stream_.gcount();
-
-        if (bytes_read > 0) {
-            processBuffer(buffer.data(), bytes_read);
-            last_pos = input_stream_.tellg();
-        }
-
-        if (input_stream_.eof()) {
-            input_stream_.clear(); // clear eof flag to continue monitoring
-            input_stream_.seekg(0, std::ios::cur);
-        }
-
-        if (bytes_read == 0) {
+        ssize_t n = ::read(input_fd_, buffer.data(), buffer.size());
+        if (n > 0) {
+            processBuffer(buffer.data(), n);
+        } else if (n == 0) {
+            waitForData();
+        } else {
+            if (errno == EINTR) {
+                continue; // interrupted by signal, retry
+            }
+            std::cerr << "read() error: " << std::strerror(errno) << "\n";
             waitForData();
         }
     }
 
     // signal consumer to finish and drain queue
-    std::lock_guard<std::mutex> lock(queue_mutex_);
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+    }
     queue_cv_.notify_all();
 
     if (consumer_thread_.joinable()) consumer_thread_.join();

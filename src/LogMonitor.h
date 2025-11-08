@@ -15,7 +15,7 @@ public:
     struct Config {
         std::string input_file;
         std::string output_file;
-        size_t buffer_size = 8192; // 8KB
+        size_t buffer_size = 1024 * 1024; // 8KB
         size_t max_line_length = 5000; // 5000 characters per line
         int poll_interval_ms = 1; // poll every 1ms to check new data
         std::vector<std::string> keywords;
@@ -36,6 +36,7 @@ private:
     std::atomic<bool> running_{false};
 
     std::ifstream input_stream_;
+    int input_fd_{-1};
     std::ofstream output_stream_;
 
     std::string current_line_;
