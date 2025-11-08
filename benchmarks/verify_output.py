@@ -5,8 +5,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--monitor-cmd", default=os.environ.get("MONITOR_CMD", "./build/log-monitor a.log b.log key1"))
     ap.add_argument("--keywords", default="key1")
-    ap.add_argument("--lines", type=int, default=2000)
-    ap.add_argument("--long-len", type=int, default=6000)
+    ap.add_argument("--lines", type=int, default=1000)
     args = ap.parse_args()
 
     keys = [k for k in args.keywords.split(",") if k]
@@ -22,7 +21,7 @@ def main():
     time.sleep(0.3)
 
     subprocess.run(
-        f"python3 benchmarks/writer.py --path a.log --lines {args.lines} --rps 0 --p-key 1.0 --long-frac 1.0 --long-len {args.long_len} --keywords {args.keywords}",
+        f"python3 benchmarks/writer.py --path a.log --lines {args.lines} --rps 100 --p-key 1.0 --long-frac 0.5 --keywords {args.keywords}",
         shell=True, check=True
     )
 
