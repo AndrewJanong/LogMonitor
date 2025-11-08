@@ -15,7 +15,7 @@ public:
     struct Config {
         std::string input_file;
         std::string output_file;
-        size_t buffer_size = 1024 * 1024; // 8KB
+        size_t buffer_size = 1024 * 1024; // 1MiB
         size_t max_line_length = 5000; // 5000 characters per line
         int poll_interval_ms = 1; // poll every 1ms to check new data
         std::vector<std::string> keywords;
@@ -50,7 +50,8 @@ private:
 
     bool openFiles();
     void processBuffer(const char* buffer, size_t bytes_read);
-    void processLine(const std::string& line);
+    void emitLine(std::string& line);
+    void processLine(std::string&& line);
     bool containsKeyword(const std::string& line) const;
     void waitForData();
     void consumerLoop();

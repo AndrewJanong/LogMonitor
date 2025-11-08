@@ -72,14 +72,21 @@ static inline long long now_epoch_ns() {
     return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-void LogMonitor::processLine(const std::string& line) {
+void LogMonitor::emitLine(std::string& line) {
+    std::string out;
+    out.swap(line);
+    processLine(std::move(out));
+    line.reserve(config_.max_line_length);
+}
+
+void LogMonitor::processLine(std::string&& line) {
     std::unique_lock<std::mutex> lock(queue_mutex_);
     queue_cv_.wait(lock, [&]{
         return !running_ || line_queue_.size() < config_.queue_capacity;
     });
 
     if (!running_) return;
-    line_queue_.push_back(line);
+    line_queue_.push_back(std::move(line));
 
     lock.unlock();
     queue_cv_.notify_one();
@@ -112,7 +119,7 @@ void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {
 
                 // if reaches limit, enqueue first to be filtered (same behavior as before)
                 if (current_line_.size() == config_.max_line_length) {
-                    processLine(current_line_);
+                    emitLine(current_line_);
                     skip_line_ = true;
                     break;
                 }
@@ -121,7 +128,7 @@ void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {
 
         if (newline) {
             if (current_line_.size() < config_.max_line_length) {
-                processLine(current_line_);
+                emitLine(current_line_);
             }
             current_line_.clear();
             read_cursor = newline + 1; // continue after '\n'
@@ -131,7 +138,6 @@ void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {
         }
     }
 }
-
 
 void LogMonitor::waitForData() {
     std::this_thread::sleep_for(std::chrono::milliseconds(config_.poll_interval_ms));
