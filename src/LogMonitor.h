@@ -35,7 +35,6 @@ private:
     Config config_;
     std::atomic<bool> running_{false};
 
-    std::ifstream input_stream_;
     int input_fd_{-1};
     std::ofstream output_stream_;
 
