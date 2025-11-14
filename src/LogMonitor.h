@@ -41,6 +41,8 @@ private:
     Config config_;
     std::atomic<bool> running_{false};
 
+    int inotify_fd_{-1};
+    int inotify_wd_{-1};
     int input_fd_{-1};
     std::ofstream output_stream_;
 
@@ -57,6 +59,8 @@ private:
     std::unique_ptr<AhoCorasick> aho_;
 
     bool openFiles();
+    bool setupInotify();
+    void cleanupInotify();
     void processBuffer(const char* buffer, size_t bytes_read);
     void emitLine(std::string& line);
     void processLine(std::string&& line);
