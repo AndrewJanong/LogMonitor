@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <deque>
 #include <atomic>
+#include <memory>
 
 class LogMonitor {
 public:
@@ -35,6 +36,8 @@ public:
     // stop monitoring
     void stop();
 private:
+    struct AhoCorasick;
+
     Config config_;
     std::atomic<bool> running_{false};
 
@@ -49,6 +52,9 @@ private:
     std::deque<std::string> line_queue_;
 
     bool skip_line_ = false;
+
+    bool use_aho_ = false;
+    std::unique_ptr<AhoCorasick> aho_;
 
     bool openFiles();
     void processBuffer(const char* buffer, size_t bytes_read);

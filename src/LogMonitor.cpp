@@ -6,15 +6,101 @@
 #include <fcntl.h>
 #include <cerrno>
 #include <cstring>
+#include <queue>
+#include <memory>
 
 #ifdef __linux__
   #include <pthread.h>
   #include <sched.h>
 #endif
 
+struct LogMonitor::AhoCorasick {
+    struct Node {
+        int next[256];
+        int fail;
+        bool output;
+        Node() : fail(0), output(false) {
+            for (int i = 0; i < 256; ++i) {
+                next[i] = -1;
+            }
+        }
+    };
+
+    std::vector<Node> nodes;
+
+    explicit AhoCorasick(const std::vector<std::string>& patterns) {
+        build(patterns);
+    }
+
+    void build(const std::vector<std::string>& patterns) {
+        nodes.clear();
+        nodes.emplace_back(); // root
+
+        // build trie
+        for (const auto& p : patterns) {
+            int v = 0;
+            for (char ch : p) {
+                unsigned char c = static_cast<unsigned char>(ch);
+                int& nxt = nodes[v].next[c];
+                if (nxt == -1) {
+                    nxt = static_cast<int>(nodes.size());
+                    nodes.emplace_back();
+                }
+                v = nxt;
+            }
+            nodes[v].output = true;
+        }
+
+        // build failure links and complete transitions
+        std::queue<int> q;
+        for (int c = 0; c < 256; ++c) {
+            int nxt = nodes[0].next[c];
+            if (nxt != -1) {
+                nodes[nxt].fail = 0;
+                q.push(nxt);
+            } else {
+                nodes[0].next[c] = 0;
+            }
+        }
+
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+            for (int c = 0; c < 256; ++c) {
+                int nxt = nodes[v].next[c];
+                if (nxt != -1) {
+                    nodes[nxt].fail = nodes[nodes[v].fail].next[c];
+                    nodes[nxt].output = nodes[nxt].output || nodes[nodes[nxt].fail].output;
+                    q.push(nxt);
+                } else {
+                    nodes[v].next[c] = nodes[nodes[v].fail].next[c];
+                }
+            }
+        }
+    }
+
+    bool matches(const std::string& text) const {
+        int state = 0;
+        for (char ch : text) {
+            unsigned char c = static_cast<unsigned char>(ch);
+            state = nodes[state].next[c];
+            if (nodes[state].output) {
+                return true; // found at least one pattern
+            }
+        }
+        return false;
+    }
+};
+
 LogMonitor::LogMonitor(const Config& config) 
     : config_(config) {
     current_line_.reserve(config.max_line_length);
+
+    // choose to use Aho-Corasick when number of keywords exceed 4
+    if (config_.keywords.size() >= 4) {
+        use_aho_ = true;
+        aho_ = std::make_unique<AhoCorasick>(config_.keywords);
+    }
 }
 
 LogMonitor::~LogMonitor() {
@@ -76,6 +162,10 @@ bool LogMonitor::openFiles() {
 bool LogMonitor::containsKeyword(const std::string& line) const {
     if (config_.keywords.empty()) {
         return true;  // no filter, accept all lines
+    }
+
+    if (use_aho_ && aho_) {
+        return aho_->matches(line);
     }
 
     for (const auto& keyword : config_.keywords) {
