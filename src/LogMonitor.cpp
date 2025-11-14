@@ -12,8 +12,6 @@
 #ifdef __linux__
   #include <pthread.h>
   #include <sched.h>
-  #include <sys/inotify.h>
-  #include <poll.h>
 #endif
 
 struct LogMonitor::AhoCorasick {
@@ -110,8 +108,6 @@ LogMonitor::~LogMonitor() {
     stop();
     if (consumer_thread_.joinable()) consumer_thread_.join();
 
-    cleanupInotify();
-
     if (input_fd_ >= 0) {
         ::close(input_fd_);
         input_fd_ = -1;
@@ -134,46 +130,6 @@ void LogMonitor::pinThread(int cpu) {
     pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 #else
     (void) cpu;
-#endif
-}
-
-bool LogMonitor::setupInotify() {
-#ifdef __linux__
-    inotify_fd_ = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    if (inotify_fd_ < 0) {
-        std::cerr << "Warning: inotify_init1 failed!\n";
-        inotify_fd_ = -1;
-        return false;
-    }
-
-    inotify_wd_ = ::inotify_add_watch(
-        inotify_fd_,
-        config_.input_file.c_str(),
-        IN_MODIFY | IN_CLOSE_WRITE | IN_ATTRIB | IN_MOVE_SELF
-    );
-
-    if (inotify_wd_ < 0) {
-        std::cerr << "Warning: inotify_add_watch failed!\n";
-        ::close(inotify_fd_);
-        inotify_fd_ = -1;
-        return false;
-    }
-    return true;
-#else
-    return false;
-#endif
-}
-
-void LogMonitor::cleanupInotify() {
-#ifdef __linux__
-    if (inotify_fd_ >= 0) {
-        if (inotify_wd_ >= 0) {
-            ::inotify_rm_watch(inotify_fd_, inotify_wd_);
-            inotify_wd_ = -1;
-        }
-        ::close(inotify_fd_);
-        inotify_fd_ = -1;
-    }
 #endif
 }
 
@@ -296,31 +252,6 @@ void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {
 }
 
 void LogMonitor::waitForData() {
-#ifdef __linux__
-    if (inotify_fd_ >= 0 && inotify_wd_ >= 0) {
-        struct pollfd pfd;
-        pfd.fd = inotify_fd_;
-        pfd.events = POLLIN;
-        pfd.revents = 0;
-
-        int timeout = config_.poll_interval_ms;
-        if (timeout < 0) timeout = 0;
-
-        int ret = ::poll(&pfd, 1, timeout);
-        if (ret > 0 && (pfd.revents & POLLIN)) {
-            char buf[4096];
-            while (true) {
-                ssize_t len = ::read(inotify_fd_, buf, sizeof(buf));
-                if (len <= 0) {
-                    break;
-                }
-            }
-        }
-        
-        // saw activity or timeout
-        return;
-    }
-#endif
     std::this_thread::sleep_for(std::chrono::milliseconds(config_.poll_interval_ms));
 }
 
@@ -359,8 +290,6 @@ void LogMonitor::run() {
     if (!openFiles()) {
         return;
     }
-
-    setupInotify();
 
     // pin reader thread if configured
     if (config_.reader_cpu >= 0) pinThread(config_.reader_cpu);

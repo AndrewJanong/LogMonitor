@@ -15,7 +15,7 @@ A bounded `deque<std::string>` bridges the stages, guarded by a mutex and condit
 
 - **POSIX read loop**: The reader uses `open`/`read` and seeks the input to end at startup, reading only newly appended data.
 - **Chunked reads**: Data is read into a reusable buffer of configurable size (`buffer_size`, default 1 MiB). Reading in chunks was decided to minimize syscalls while keeping latency low for line assembly.
-- **Evented wakes**: If no new data is available, the reader will sleep and will be notified if there is an update by using `inotify`. This avoids unecessary waits for data.
+- **Polling**: If no new data is available, the reader will sleep for a short interval (poll_interval_ms, default 1 ms). This avoids busy‑spinning, but still responsive.
 
 # Line Assembly & Truncation
 
