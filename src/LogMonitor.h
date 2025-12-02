@@ -6,10 +6,53 @@
 #include <vector>
 #include <thread>
 #include <mutex>
-#include <condition_variable>
-#include <deque>
 #include <atomic>
 #include <memory>
+
+template <typename T>
+class SpscQueue {
+public:
+    explicit SpscQueue(std::size_t capacity)
+        : capacity_(capacity + 1), buffer_(capacity_), head_(0), tail_(0) {}
+
+    bool push(const T& value) {
+        auto head = head_.load(std::memory_order_relaxed);
+        auto next = increment(head);
+        if (next == tail_.load(std::memory_order_acquire)) {
+            // full
+            return false;
+        }
+        buffer_[head] = value;
+        head_.store(next, std::memory_order_release);
+        return true;
+    }
+
+    bool pop(T& value) {
+        auto tail = tail_.load(std::memory_order_relaxed);
+        if (tail == head_.load(std::memory_order_acquire)) {
+            // empty
+            return false;
+        }
+        value = buffer_[tail];
+        tail_.store(increment(tail), std::memory_order_release);
+        return true;
+    }
+
+    bool empty() const {
+        return tail_.load(std::memory_order_acquire) == head_.load(std::memory_order_acquire);
+    }
+
+private:
+    std::size_t increment(std::size_t i) const noexcept {
+        return (i + 1) % capacity_;
+    }
+
+    const std::size_t capacity_;
+    std::vector<T> buffer_;
+    std::atomic<std::size_t> head_;
+    std::atomic<std::size_t> tail_;
+};
+
 
 class LogMonitor {
 public:
@@ -48,9 +91,7 @@ private:
     std::string* current_line_;
 
     std::thread consumer_thread_;
-    std::mutex queue_mutex_;
-    std::condition_variable queue_cv_;
-    std::deque<std::string*> line_queue_;
+    SpscQueue<std::string*> line_queue_;
 
     std::vector<std::unique_ptr<std::string>> buffer_pool_;
     std::vector<std::string*> free_buffers_;
@@ -64,7 +105,6 @@ private:
     bool openFiles();
     void processBuffer(const char* buffer, size_t bytes_read);
     void emitLine();
-    void processLine(std::string&& line);
     bool containsKeyword(const std::string& line) const;
     void waitForData();
     void consumerLoop();

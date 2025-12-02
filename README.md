@@ -1,4 +1,4 @@
-# Nayt Take-Home Assignment (Log Monitor)
+# LogMonitor
 
 A tiny, dependency‑free C++17 tool that *tails* a growing log file and writes only the
 lines that contain any of the specified keywords to a second file. It is designed to

@@ -93,7 +93,7 @@ struct LogMonitor::AhoCorasick {
 };
 
 LogMonitor::LogMonitor(const Config& config) 
-    : config_(config) {
+    : config_(config), line_queue_(config_.queue_capacity) {
 
     // choose to use Aho-Corasick when number of keywords exceed 4
     if (config_.keywords.size() >= 4) {
@@ -219,19 +219,15 @@ void LogMonitor::emitLine() {
 
     current_line_ = acquireBuffer();
 
-    std::unique_lock<std::mutex> lock(queue_mutex_);
-    queue_cv_.wait(lock, [&]{
-        return !running_ || line_queue_.size() < config_.queue_capacity;
-    });
-    if (!running_) {
-        releaseBuffer(ready_line);
-        return;
+    while (running_) {
+        if (line_queue_.push(ready_line)) {
+            return;
+        }
+
+        std::this_thread::yield();
     }
 
-    line_queue_.push_back(ready_line);
-
-    lock.unlock();
-    queue_cv_.notify_one();
+    releaseBuffer(ready_line);
 }
 
 void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {
@@ -290,21 +286,12 @@ void LogMonitor::waitForData() {
 
 
 void LogMonitor::consumerLoop() {
-    while (true) {
+    while (running_ || !line_queue_.empty()) {
         std::string* line_buf = nullptr;
-        {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
-            queue_cv_.wait(lock, [&]{
-                return !running_ || !line_queue_.empty();
-            });
 
-            if (!running_ && line_queue_.empty()) break;
-
-            line_buf = line_queue_.front();
-            line_queue_.pop_front();
-
-            lock.unlock();
-            queue_cv_.notify_one(); // wake producer if it was waiting on capacity
+        if (!line_queue_.pop(line_buf)) {
+            std::this_thread::yield();
+            continue;
         }
 
         const std::string& line = *line_buf;
@@ -357,16 +344,9 @@ void LogMonitor::run() {
         }
     }
 
-    // signal consumer to finish and drain queue
-    {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-    }
-    queue_cv_.notify_all();
-
     if (consumer_thread_.joinable()) consumer_thread_.join();
 }
 
-void LogMonitor::stop() {
-    running_ = false;
-    queue_cv_.notify_all(); // wake producer/consumer
+void LogMonitor::stop() noexcept {
+    running_.store(false, std::memory_order_relaxed);
 }
