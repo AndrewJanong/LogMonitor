@@ -8,6 +8,7 @@
 #include <mutex>
 #include <atomic>
 #include <memory>
+#include <string_view>
 
 template <typename T>
 class SpscQueue {
@@ -78,7 +79,7 @@ public:
     void run();
 
     // stop monitoring
-    void stop();
+    void stop() noexcept;
 private:
     struct AhoCorasick;
 
@@ -105,7 +106,7 @@ private:
     bool openFiles();
     void processBuffer(const char* buffer, size_t bytes_read);
     void emitLine();
-    bool containsKeyword(const std::string& line) const;
+    bool containsKeyword(std::string_view line) const;
     void waitForData();
     void consumerLoop();
 

@@ -79,7 +79,7 @@ struct LogMonitor::AhoCorasick {
         }
     }
 
-    bool matches(const std::string& text) const {
+    bool matches(std::string_view text) const {
         int state = 0;
         for (char ch : text) {
             unsigned char c = static_cast<unsigned char>(ch);
@@ -169,7 +169,7 @@ bool LogMonitor::openFiles() {
     return true;
 }
 
-bool LogMonitor::containsKeyword(const std::string& line) const {
+bool LogMonitor::containsKeyword(std::string_view line) const {
     if (config_.keywords.empty()) {
         return true;  // no filter, accept all lines
     }
@@ -179,7 +179,7 @@ bool LogMonitor::containsKeyword(const std::string& line) const {
     }
 
     for (const auto& keyword : config_.keywords) {
-        if (line.find(keyword) != std::string::npos) {
+        if (line.find(keyword) != std::string_view::npos) {
             return true;
         }
     }
@@ -294,13 +294,13 @@ void LogMonitor::consumerLoop() {
             continue;
         }
 
-        const std::string& line = *line_buf;
+        std::string_view line_view(*line_buf);
 
-        if (containsKeyword(line)) {
+        if (containsKeyword(line_view)) {
             if (config_.bench_stamp) {
-                output_stream_ << line << "\t#MON_TS=" << std::to_string(now_epoch_ns()) << "\n";
+                output_stream_ << *line_buf << "\t#MON_TS=" << std::to_string(now_epoch_ns()) << "\n";
             } else {
-                output_stream_ << line << "\n";
+                output_stream_ << *line_buf << "\n";
             }
         }
 
