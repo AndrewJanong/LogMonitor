@@ -22,6 +22,7 @@ public:
         std::vector<std::string> keywords;
         bool bench_stamp = false;
         size_t queue_capacity = 4096; // bound for line queue
+        size_t pool_initial_capacity = 4096; // default size of buffer pool
 
         int reader_cpu   = -1; // default -1 = no pinning
         int consumer_cpu = -1; // default -1 = no pinning
@@ -44,12 +45,16 @@ private:
     int input_fd_{-1};
     std::ofstream output_stream_;
 
-    std::string current_line_;
+    std::string* current_line_;
 
     std::thread consumer_thread_;
     std::mutex queue_mutex_;
     std::condition_variable queue_cv_;
-    std::deque<std::string> line_queue_;
+    std::deque<std::string*> line_queue_;
+
+    std::vector<std::unique_ptr<std::string>> buffer_pool_;
+    std::vector<std::string*> free_buffers_;
+    std::mutex pool_mutex_;
 
     bool skip_line_ = false;
 
@@ -58,13 +63,16 @@ private:
 
     bool openFiles();
     void processBuffer(const char* buffer, size_t bytes_read);
-    void emitLine(std::string& line);
+    void emitLine();
     void processLine(std::string&& line);
     bool containsKeyword(const std::string& line) const;
     void waitForData();
     void consumerLoop();
 
     static void pinThread(int cpu);
+
+    std::string* acquireBuffer();
+    void releaseBuffer(std::string* buf); 
 };
 
 #endif // LOG_MONITOR_H

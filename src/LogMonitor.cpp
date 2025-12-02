@@ -94,13 +94,23 @@ struct LogMonitor::AhoCorasick {
 
 LogMonitor::LogMonitor(const Config& config) 
     : config_(config) {
-    current_line_.reserve(config.max_line_length);
 
     // choose to use Aho-Corasick when number of keywords exceed 4
     if (config_.keywords.size() >= 4) {
         use_aho_ = true;
         aho_ = std::make_unique<AhoCorasick>(config_.keywords);
     }
+
+    buffer_pool_.reserve(config_.pool_initial_capacity + 1);
+
+    for (int i = 0; i < config_.pool_initial_capacity; ++i) {
+        auto buf = std::make_unique<std::string>();
+        buf->reserve(config_.max_line_length);
+        free_buffers_.push_back(buf.get());
+        buffer_pool_.push_back(std::move(buf));
+    }
+
+    current_line_ = acquireBuffer();
 }
 
 LogMonitor::~LogMonitor() {
@@ -181,21 +191,44 @@ static inline long long now_epoch_ns() {
     return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-void LogMonitor::emitLine(std::string& line) {
-    std::string out;
-    out.swap(line);
-    processLine(std::move(out));
-    line.reserve(config_.max_line_length);
+std::string* LogMonitor::acquireBuffer() {
+    std::lock_guard<std::mutex> lock(pool_mutex_);
+    if (!free_buffers_.empty()) {
+        std::string* buf = free_buffers_.back();
+        free_buffers_.pop_back();
+        buf->clear();
+        return buf;
+    }
+
+    // allocate new buffer if pool is exhausted
+    auto buf = std::make_unique<std::string>();
+    buf->reserve(config_.max_line_length);
+    std::string* raw = buf.get();
+    buffer_pool_.push_back(std::move(buf));
+    return raw;
 }
 
-void LogMonitor::processLine(std::string&& line) {
+void LogMonitor::releaseBuffer(std::string* buf) {
+    std::lock_guard<std::mutex> lock(pool_mutex_);
+    buf->clear();
+    free_buffers_.push_back(buf);
+}
+
+void LogMonitor::emitLine() {
+    std::string* ready_line = current_line_;
+
+    current_line_ = acquireBuffer();
+
     std::unique_lock<std::mutex> lock(queue_mutex_);
     queue_cv_.wait(lock, [&]{
         return !running_ || line_queue_.size() < config_.queue_capacity;
     });
+    if (!running_) {
+        releaseBuffer(ready_line);
+        return;
+    }
 
-    if (!running_) return;
-    line_queue_.push_back(std::move(line));
+    line_queue_.push_back(ready_line);
 
     lock.unlock();
     queue_cv_.notify_one();
@@ -227,12 +260,12 @@ void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {
             char ch = *q;
             if (ch == '\r') continue;
 
-            if (current_line_.size() < config_.max_line_length) {
-                current_line_ += ch;
+            if (current_line_->size() < config_.max_line_length) {
+                current_line_->push_back(ch);
 
                 // if reaches limit, enqueue first to be filtered (same behavior as before)
-                if (current_line_.size() == config_.max_line_length) {
-                    emitLine(current_line_);
+                if (current_line_->size() == config_.max_line_length) {
+                    emitLine();
                     skip_line_ = true;
                     break;
                 }
@@ -240,8 +273,8 @@ void LogMonitor::processBuffer(const char* buffer, size_t bytes_read) {
         }
 
         if (newline) {
-            if (current_line_.size() < config_.max_line_length) {
-                emitLine(current_line_);
+            if (current_line_->size() < config_.max_line_length) {
+                emitLine();
             }
             read_cursor = newline + 1; // continue after '\n'
             skip_line_ = false;
@@ -258,7 +291,7 @@ void LogMonitor::waitForData() {
 
 void LogMonitor::consumerLoop() {
     while (true) {
-        std::string line;
+        std::string* line_buf = nullptr;
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
             queue_cv_.wait(lock, [&]{
@@ -267,12 +300,14 @@ void LogMonitor::consumerLoop() {
 
             if (!running_ && line_queue_.empty()) break;
 
-            line = std::move(line_queue_.front());
+            line_buf = line_queue_.front();
             line_queue_.pop_front();
 
             lock.unlock();
             queue_cv_.notify_one(); // wake producer if it was waiting on capacity
         }
+
+        const std::string& line = *line_buf;
 
         if (containsKeyword(line)) {
             if (config_.bench_stamp) {
@@ -281,6 +316,9 @@ void LogMonitor::consumerLoop() {
                 output_stream_ << line << "\n";
             }
         }
+
+        // recycle the buffer after done, instead of deallocation
+        releaseBuffer(line_buf);
     }
 
     output_stream_.flush();
